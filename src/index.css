@@ -196,7 +196,7 @@
 
 @font-face {
   font-family: 'Muyao';
-  src: url('/fonts/Muyao.ttf') format('truetype');
+  src: url('fonts/Muyao.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
@@ -204,7 +204,7 @@
 
 @font-face {
   font-family: 'Xihuan';
-  src: url('/fonts/喜欢体.ttf') format('truetype');
+  src: url('fonts/喜欢体.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
