@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "Sticker": {
+      "title": "Sticker",
+      "description": "A draggable sticker or text element on the page.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["image", "text"] },
+        "src": { "type": "string", "description": "Base64 or URL for image stickers." },
+        "text": { "type": "string", "description": "Content for text stickers." },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "rotate": { "type": "number" },
+        "scale": { "type": "number" },
+        "fontFamily": { "type": "string" },
+        "color": { "type": "string" },
+        "isBorderless": { "type": "boolean" }
+      },
+      "required": ["type", "x", "y", "rotate", "scale"]
+    },
+    "CustomSticker": {
+      "title": "CustomSticker",
+      "description": "A reusable image in the sticker library.",
+      "type": "object",
+      "properties": {
+        "src": { "type": "string", "description": "Base64 image data." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["src"]
+    },
+    "WorldImage": {
+      "title": "WorldImage",
+      "description": "An image in the 'World in My Eyes' gallery.",
+      "type": "object",
+      "properties": {
+        "src": { "type": "string", "description": "Base64 image data." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["src"]
+    },
+    "ClickNote": {
+      "title": "ClickNote",
+      "description": "A scattered paper note in the 'Click Moment' section.",
+      "type": "object",
+      "properties": {
+        "front": { "type": "string" },
+        "back": { "type": "string" },
+        "rotate": { "type": "number" },
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "required": ["front", "back", "rotate", "x", "y"]
+    },
+    "PageContent": {
+      "title": "PageContent",
+      "description": "Global editable text content for the website.",
+      "type": "object",
+      "properties": {
+        "heroTitle": { "type": "string" },
+        "heroSubtitle": { "type": "string" },
+        "aboutHeading": { "type": "string" },
+        "aboutQuote": { "type": "string" },
+        "expTitle": { "type": "string" },
+        "expSubtitle": { "type": "string" },
+        "projectsTitle": { "type": "string" },
+        "skillsHeading": { "type": "string" },
+        "skillsList": { "type": "string" },
+        "awardsHeading": { "type": "string" },
+        "awardsList": { "type": "string" },
+        "footerTagline": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "stickers": {
+      "schema": "Sticker",
+      "description": "Collection of all active stickers on the page."
+    },
+    "customStickers": {
+      "schema": "CustomSticker",
+      "description": "Collection of available custom stickers in the creator box."
+    },
+    "worldImages": {
+      "schema": "WorldImage",
+      "description": "Collection of images in the filmstrip gallery."
+    },
+    "clickNotes": {
+      "schema": "ClickNote",
+      "description": "Collection of scattered notes."
+    },
+    "config/pageContent": {
+      "schema": "PageContent",
+      "description": "Singleton-like document for global site text."
+    }
+  }
+}

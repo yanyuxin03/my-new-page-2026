@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0.1 Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email == "yanyuxin03@gmail.com" && 
+             request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Schema Validations
+    function isValidPageContent(data) {
+      return data.size() <= 20; // Bound number of fields
+    }
+
+    function isValidSticker(data) {
+      return data.keys().hasAll(['x', 'y', 'rotate', 'scale']) &&
+             data.x is number && data.y is number &&
+             data.rotate is number && data.scale is number &&
+             (data.get('text', '') is string && data.get('text', '').size() <= 500);
+    }
+
+    // 1. Page Content (Singleton)
+    match /config/pageContent {
+      allow read: if true;
+      allow write: if isAdmin() && isValidPageContent(incoming());
+    }
+
+    // 2. Stickers
+    match /stickers/{stickerId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidSticker(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 3. Custom Stickers
+    match /customStickers/{stickerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 4. World Images (Gallery)
+    match /worldImages/{imageId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 5. Click Notes
+    match /clickNotes/{noteId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}

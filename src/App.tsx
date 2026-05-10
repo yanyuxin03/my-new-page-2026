@@ -35,6 +35,28 @@ import {
   MousePointerClick
 } from 'lucide-react';
 import { DATA } from './constants';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged,
+  signOut
+} from 'firebase/auth';
+import { db, auth, OperationType, handleFirestoreError } from './lib/firebase';
+import { 
+  doc, 
+  setDoc, 
+  getDoc,
+  getDocs, 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  orderBy, 
+  serverTimestamp,
+  getDocFromServer
+} from 'firebase/firestore';
 
 const CORRECT_PASSWORD = "yanyuxin2026"; // Default password as per instructions (will be updated if user provides one)
 
@@ -620,6 +642,10 @@ const EditableText = ({
       contentEditable
       suppressContentEditableWarning
       className={`${className} outline-none border-b border-dashed border-primary/40 focus:border-primary focus:bg-primary/5 transition-all cursor-text relative z-[60]`}
+      onClick={(e: React.MouseEvent) => {
+        // Prevent triggering parent interactions (like opening modals) when editing
+        e.stopPropagation();
+      }}
       onBlur={(e: any) => {
         const newVal = e.target.innerText;
         setLocalVal(newVal);
@@ -687,100 +713,129 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Sticker Management State with persistence
-  const [stickers, setStickers] = useState<{ id: string; type?: 'image' | 'text'; src?: string; text?: string; x: number; y: number; rotate: number; scale: number; fontFamily?: string; color?: string; isBorderless?: boolean }[]>(() => {
-    try {
-      const saved = localStorage.getItem('yanyuxin_stickers');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      console.error("Failed to load stickers:", e);
-      return [];
-    }
-  });
+  // Sticker Management State
+  const [stickers, setStickers] = useState<{ id: string; type?: 'image' | 'text'; src?: string; text?: string; x: number; y: number; rotate: number; scale: number; fontFamily?: string; color?: string; isBorderless?: boolean }[]>([]);
   const [showStickerBox, setShowStickerBox] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   // Custom Sticker Library State
-  const [customStickers, setCustomStickers] = useState<string[]>(() => {
+  const [customStickers, setCustomStickers] = useState<string[]>([]);
+  const MAX_CUSTOM_STICKERS = 150;
+
+  // World Images State
+  const [worldImages, setWorldImages] = useState<string[]>([]);
+
+  // Click Moment Notes State
+  const [clickNotes, setClickNotes] = useState<{ id: string; front: string; back: string; rotate: number; x: number; y: number }[]>([]);
+  
+  // Sync Status State
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved'>('idle');
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+
+  // Helper for tracking sync
+  const trackSync = async <T,>(promise: Promise<T>): Promise<T> => {
+    setSyncStatus('syncing');
     try {
-      const saved = localStorage.getItem('yanyuxin_custom_stickers');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      console.error("Failed to load custom stickers:", e);
-      return [];
+      const result = await promise;
+      setSyncStatus('saved');
+      setLastSynced(new Date());
+      setTimeout(() => setSyncStatus('idle'), 3000);
+      return result;
+    } catch (err) {
+      setSyncStatus('idle');
+      throw err;
     }
+  };
+
+  // Page Content State
+  const [pageContent, setPageContent] = useState({
+    heroTitle: `Hi！我是${DATA.name}`,
+    heroSubtitle: DATA.title,
+    aboutHeading: "核心能力",
+    aboutQuote: "内容创作：熟悉公众号、B 站、小红书等新媒体平台内容逻辑，可独立完成选题策划、文案撰写、图文与短视频内容产出，具备从创意构思到宣发落地的全链路执行能力，擅长结合热点打造高传播内容，精准把握用户偏好。\n\n市场调研与活动执行：具备竞品分析、行业动态追踪与用户需求挖掘能力，可协同多方资源推进内容与方案落地，具备较强的策划力、逻辑力与协调能力。\n\n数据与用户运营：具备数据收集、用户反馈分析与复盘优化意识，能通过数据表现调整运营方向，熟悉基础数据挖掘与资料整合方法，注重以用户思维驱动运营策略优化，支撑业务落地与效果提升。\n\n实践背景：湖南大学新闻学本科背景，拥有媒体平台方运营实习、主流媒体记者实习、校园官方宣传与深度调研项目经验，具备扎实文案能力、用户洞察力与执行力，精准匹配市场营销、内容运营、内容企划类岗位核心需求。",
+    expTitle: "Professional Journey",
+    expSubtitle: "从媒体实习的敏锐观察到在校研究的深耕细作，在实践中重构真实叙事。",
+    projectsTitle: "Archive of Narrative Projects",
+    skillsHeading: "核心技能集",
+    skillsList: DATA.skills.join(", "),
+    awardsHeading: "所获奖项",
+    awardsList: DATA.awards.join("\n"),
+    footerTagline: `颜雨欣 © ${new Date().getFullYear()} · 故事还没写完`
   });
 
-  const MAX_CUSTOM_STICKERS = 150; // Increased logical limit
-
-  // World Images State with persistence
-  const [worldImages, setWorldImages] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('yanyuxin_world_images');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      console.error("Failed to load world images:", e);
-      return [];
-    }
-  });
-
-  // Click Moment Notes State with persistence
-  const [clickNotes, setClickNotes] = useState<{ id: string; front: string; back: string; rotate: number; x: number; y: number }[]>(() => {
-    try {
-      const saved = localStorage.getItem('yanyuxin_click_notes');
-      if (saved) return JSON.parse(saved);
-      
-      // Default notes if empty
-      return [
-        { id: '1', front: '这是一句灵感迸发的短句', back: '这是一篇关于生活琐碎的感悟。在这里，文字可以是诗，也可以是信，或是写给未来的自己。', rotate: -2, x: 5, y: -5 },
-        { id: '2', front: '在某个瞬间，我听到了世界的心跳', back: '那天午后，阳光穿过树叶的缝隙，我意识到每一个 Click Moment 都是时间的馈赠。', rotate: 3, x: -8, y: 10 },
-        { id: '3', front: '文字重构真实', back: '新闻不仅仅是报道，更是一种对社会切面的深度抚摸。', rotate: -1, x: 12, y: -2 }
-      ];
-    } catch (e) {
-      console.error("Failed to load click notes:", e);
-      return [];
-    }
-  });
-
-  // Auto-save stickers whenever they change
+  // Scroll Lock for Modals
   useEffect(() => {
-    try {
-      localStorage.setItem('yanyuxin_stickers', JSON.stringify(stickers));
-    } catch (e) {
-      console.error("Failed to save stickers:", e);
+    if (selectedProject) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
     }
-  }, [stickers]);
+    return () => { document.body.style.overflow = ''; };
+  }, [selectedProject]);
 
+  // Firebase Synchronization
   useEffect(() => {
-    try {
-      localStorage.setItem('yanyuxin_click_notes', JSON.stringify(clickNotes));
-    } catch (e) {
-      console.error("Failed to save click notes:", e);
-    }
-  }, [clickNotes]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('yanyuxin_custom_stickers', JSON.stringify(customStickers));
-    } catch (e) {
-      if (e instanceof Error && e.name === 'QuotaExceededError') {
-        alert('本地贴纸箱存储已满，无法保存更多自定义贴纸。');
+    // 1. Connection Test
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
       }
-      console.error("Failed to save custom stickers:", e);
-    }
-  }, [customStickers]);
+    };
+    testConnection();
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('yanyuxin_world_images', JSON.stringify(worldImages));
-    } catch (e) {
-      if (e instanceof Error && e.name === 'QuotaExceededError') {
-        alert('本地相册存储已满，无法保存更多影像。');
+    // 2. Auth State Sync
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      console.log("Auth state changed, user:", user);
+      // Only the specific admin email gets creator mode
+      if (user && user.email === "yanyuxin03@gmail.com") {
+        setIsCreatorMode(true);
+      } else {
+        setIsCreatorMode(false);
       }
-      console.error("Failed to save world images:", e);
-    }
-  }, [worldImages]);
+    });
+
+    // 3. Real-time Sync Listeners
+    const unsubPageContent = onSnapshot(doc(db, 'config', 'pageContent'), (snapshot) => {
+      if (snapshot.exists()) {
+        setPageContent(prev => ({ ...prev, ...snapshot.data() }));
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'config/pageContent'));
+
+    const unsubStickers = onSnapshot(collection(db, 'stickers'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setStickers(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'stickers'));
+
+    const unsubCustomStickers = onSnapshot(query(collection(db, 'customStickers'), orderBy('createdAt', 'desc')), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data().src);
+      setCustomStickers(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'customStickers'));
+
+    const unsubWorldImages = onSnapshot(query(collection(db, 'worldImages'), orderBy('createdAt', 'desc')), (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data().src);
+      setWorldImages(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'worldImages'));
+
+    const unsubClickNotes = onSnapshot(collection(db, 'clickNotes'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setClickNotes(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'clickNotes'));
+
+    return () => {
+      unsubAuth();
+      unsubPageContent();
+      unsubStickers();
+      unsubCustomStickers();
+      unsubWorldImages();
+      unsubClickNotes();
+    };
+  }, []);
 
   const handleWorldImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -793,18 +848,31 @@ export default function App() {
         const result = event.target?.result as string;
         try {
           const compressed = await compressImage(result);
-          setWorldImages(prev => [...prev, compressed]);
+          // Firestore Write
+          await trackSync(addDoc(collection(db, 'worldImages'), {
+            src: compressed,
+            createdAt: serverTimestamp()
+          }));
         } catch (err) {
-          console.error("Compression failed:", err);
-          setWorldImages(prev => [...prev, result]);
+          handleFirestoreError(err, OperationType.WRITE, 'worldImages');
         }
       };
       reader.readAsDataURL(file);
     });
   };
 
-  const removeWorldImage = (idx: number) => {
-    setWorldImages(prev => prev.filter((_, i) => i !== idx));
+  const removeWorldImage = async (idx: number) => {
+    try {
+      // Find the document by index (we need the doc ID)
+      const q = query(collection(db, 'worldImages'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      const docId = snapshot.docs[idx]?.id;
+      if (docId) {
+        await trackSync(deleteDoc(doc(db, 'worldImages', docId)));
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'worldImages');
+    }
   };
 
   const handleFileUpload = (file: File) => {
@@ -822,9 +890,12 @@ export default function App() {
       if (result) {
         try {
           const compressed = await compressImage(result);
-          setCustomStickers(prev => [compressed, ...prev]);
+          await trackSync(addDoc(collection(db, 'customStickers'), {
+            src: compressed,
+            createdAt: serverTimestamp()
+          }));
         } catch (err) {
-          setCustomStickers(prev => [result, ...prev]);
+          handleFirestoreError(err, OperationType.WRITE, 'customStickers');
         }
       }
     };
@@ -837,9 +908,18 @@ export default function App() {
     files.forEach(handleFileUpload);
   };
 
-  const removeCustomSticker = (e: React.MouseEvent, index: number) => {
+  const removeCustomSticker = async (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
-    setCustomStickers(prev => prev.filter((_, i) => i !== index));
+    try {
+      const q = query(collection(db, 'customStickers'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      const docId = snapshot.docs[index]?.id;
+      if (docId) {
+        await trackSync(deleteDoc(doc(db, 'customStickers', docId)));
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'customStickers');
+    }
   };
 
   // Save current view as an image
@@ -877,23 +957,25 @@ export default function App() {
   };
 
   // Add a new sticker to the page
-  const addSticker = (src: string) => {
+  const addSticker = async (src: string) => {
     const newSticker = {
-      id: Math.random().toString(36).substr(2, 9),
       type: 'image' as const,
       src: src,
-      // Place relative to current scroll position
       x: window.innerWidth / 2 - 100 + (Math.random() * 40 - 20),
       y: window.scrollY + window.innerHeight / 2 - 100 + (Math.random() * 40 - 20),
       rotate: Math.random() * 20 - 10,
-      scale: 1
+      scale: 1,
+      createdAt: serverTimestamp()
     };
-    setStickers([...stickers, newSticker]);
+    try {
+      await trackSync(addDoc(collection(db, 'stickers'), newSticker));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'stickers');
+    }
   };
 
-  const addTextSticker = (isBorderless = false) => {
+  const addTextSticker = async (isBorderless = false) => {
     const newSticker = {
-      id: Math.random().toString(36).substr(2, 9),
       type: 'text' as const,
       text: isBorderless ? '无边框文字' : '带框文字',
       fontFamily: 'Muyao',
@@ -901,100 +983,134 @@ export default function App() {
       x: window.innerWidth / 2 - 100 + (Math.random() * 40 - 20),
       y: window.scrollY + window.innerHeight / 2 - 100 + (Math.random() * 40 - 20),
       rotate: Math.random() * 20 - 10,
-      scale: 1
+      scale: 1,
+      createdAt: serverTimestamp()
     };
-    setStickers([...stickers, newSticker]);
+    try {
+      await trackSync(addDoc(collection(db, 'stickers'), newSticker));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'stickers');
+    }
   };
 
-  const updateSticker = (id: string, updates: Partial<{ x: number; y: number; rotate: number; scale: number; text?: string; fontFamily?: string; color?: string; isBorderless?: boolean }>) => {
-    setStickers(stickers.map(s => s.id === id ? { ...s, ...updates } : s));
+  const updateSticker = async (id: string, updates: Partial<{ x: number; y: number; rotate: number; scale: number; text?: string; fontFamily?: string; color?: string; isBorderless?: boolean }>) => {
+    try {
+      await trackSync(updateDoc(doc(db, 'stickers', id), updates));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `stickers/${id}`);
+    }
   };
 
-  const removeSticker = (id: string) => {
-    setStickers(stickers.filter(s => s.id !== id));
+  const removeSticker = async (id: string) => {
+    try {
+      await trackSync(deleteDoc(doc(db, 'stickers', id)));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `stickers/${id}`);
+    }
   };
 
-  const addClickNote = () => {
+  const addClickNote = async () => {
     const newNote = {
-      id: Math.random().toString(36).substr(2, 9),
       front: '灵感瞬间...',
       back: '在这里写下完整的内容...',
       rotate: Math.random() * 8 - 4,
-      x: Math.random() * 20 - 10, // Randomized offset X
-      y: Math.random() * 20 - 10  // Randomized offset Y
+      x: Math.random() * 20 - 10,
+      y: Math.random() * 20 - 10,
+      createdAt: serverTimestamp()
     };
-    setClickNotes([...clickNotes, newNote]);
-  };
-
-  const updateClickNote = (id: string, updates: any) => {
-    setClickNotes(clickNotes.map(n => n.id === id ? { ...n, ...updates } : n));
-  };
-
-  const removeClickNote = (id: string) => {
-    setClickNotes(clickNotes.filter(n => n.id !== id));
-  };
-
-  const clearStickers = () => {
-    if (confirm('确定要清空所有贴纸吗？')) {
-      setStickers([]);
+    try {
+      await trackSync(addDoc(collection(db, 'clickNotes'), newNote));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'clickNotes');
     }
   };
 
-  const handleCreatorModeToggle = () => {
+  const updateClickNote = async (id: string, updates: any) => {
+    try {
+      await trackSync(updateDoc(doc(db, 'clickNotes', id), updates));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `clickNotes/${id}`);
+    }
+  };
+
+  const removeClickNote = async (id: string) => {
+    try {
+      await trackSync(deleteDoc(doc(db, 'clickNotes', id)));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `clickNotes/${id}`);
+    }
+  };
+
+  const clearStickers = async () => {
+    if (confirm('确定要清空所有贴纸吗？')) {
+      try {
+        const snapshot = await getDocs(collection(db, 'stickers'));
+        const promises = snapshot.docs.map(d => deleteDoc(d.ref));
+        await Promise.all(promises);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, 'stickers');
+      }
+    }
+  };
+
+  const handleCreatorModeToggle = async () => {
+    // Force a visual confirmation that the button was actually clicked
+    console.log("Creator Mode Toggle Triggered. Current state:", isCreatorMode);
+    
     if (isCreatorMode) {
-      setIsCreatorMode(false);
+      try {
+        setShowStickerBox(false);
+        setIsCreatorMode(false);
+        await signOut(auth);
+        window.location.reload();
+      } catch (err) {
+        console.error("Sign out error:", err);
+        setIsCreatorMode(true);
+      }
       return;
     }
+    
+    // For logging in
+    console.log("Showing Password Modal...");
     setShowPasswordModal(true);
     setPasswordInput('');
     setPasswordError(false);
+    setAuthError(null);
   };
 
-  const verifyPassword = () => {
+  const verifyPassword = async () => {
+    setAuthError(null);
     if (passwordInput === CORRECT_PASSWORD) {
-      setIsCreatorMode(true);
-      setShowPasswordModal(false);
+      try {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' }); // Force selection to fix auto-login bugs in iframes
+        const result = await signInWithPopup(auth, provider);
+        if (result.user && result.user.email !== "yanyuxin03@gmail.com") {
+            setAuthError("请确使用 yanyuxin03@gmail.com 登录。");
+            await signOut(auth); // force sign out
+            return;
+        }
+        setShowPasswordModal(false);
+      } catch (err: any) {
+        console.error("Google Login failed:", err);
+        if (err.code === 'auth/popup-closed-by-user') {
+          setAuthError("由于浏览器限制，弹窗可能被意外关闭。请再次点击并允许弹出窗口。您可以尝试多试几次，如果实在不行请[右键点击本页面]->[在新标签页中打开]。");
+        } else {
+          setAuthError(err instanceof Error ? err.message : "登录失败，请重试。");
+        }
+      }
     } else {
       setPasswordError(true);
       setTimeout(() => setPasswordError(false), 1000);
     }
   };
 
-  // Editable Content State (Page text)
-  const [pageContent, setPageContent] = useState(() => {
-    const defaults = {
-      heroTitle: `Hi！我是${DATA.name}`,
-      heroSubtitle: DATA.title,
-      aboutHeading: "核心能力",
-      aboutQuote: "内容创作：熟悉公众号、B 站、小红书等新媒体平台内容逻辑，可独立完成选题策划、文案撰写、图文与短视频内容产出，具备从创意构思到宣发落地的全链路执行能力，擅长结合热点打造高传播内容，精准把握用户偏好。\n\n市场调研与活动执行：具备竞品分析、行业动态追踪与用户需求挖掘能力，可协同多方资源推进内容与方案落地，具备较强的策划力、逻辑力与协调能力。\n\n数据与用户运营：具备数据收集、用户反馈分析与复盘优化意识，能通过数据表现调整运营方向，熟悉基础数据挖掘与资料整合方法，注重以用户思维驱动运营策略优化，支撑业务落地与效果提升。\n\n实践背景：湖南大学新闻学本科背景，拥有媒体平台方运营实习、主流媒体记者实习、校园官方宣传与深度调研项目经验，具备扎实文案能力、用户洞察力与执行力，精准匹配市场营销、内容运营、内容企划类岗位核心需求。",
-      expTitle: "Professional Journey",
-      expSubtitle: "从媒体实习的敏锐观察到在校研究的深耕细作，在实践中重构真实叙事。",
-      projectsTitle: "Archive of Narrative Projects",
-      skillsHeading: "核心技能集",
-      skillsList: DATA.skills.join(", "),
-      awardsHeading: "所获奖项",
-      awardsList: DATA.awards.join("\n"),
-      footerTagline: `颜雨欣 © ${new Date().getFullYear()} · 故事还没写完`
-    };
-
+  const updatePageContent = async (key: string, value: string) => {
     try {
-      const saved = localStorage.getItem('yanyuxin_page_content_v2');
-      if (saved) {
-        return { ...defaults, ...JSON.parse(saved) };
-      }
-      return defaults;
-    } catch (e) {
-      return defaults;
+      await trackSync(setDoc(doc(db, 'config', 'pageContent'), { [key]: value }, { merge: true }));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'config/pageContent');
     }
-  });
-
-  // Auto-save page content
-  useEffect(() => {
-    localStorage.setItem('yanyuxin_page_content_v2', JSON.stringify(pageContent));
-  }, [pageContent]);
-
-  const updatePageContent = (key: string, value: string) => {
-    setPageContent(prev => ({ ...prev, [key]: value }));
   };
 
   const filteredProjects = useMemo(() => 
@@ -1043,20 +1159,41 @@ export default function App() {
       ))}
 
       {/* Creator Mode Indicator & Login */}
-      <div className="fixed top-24 right-10 z-[50] export-ignore">
+      <div className="fixed top-24 right-10 z-[9999] export-ignore flex flex-col items-end gap-2">
         <button 
           onClick={handleCreatorModeToggle}
-          className={`px-4 py-2 rounded-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest shadow-xl transition-all duration-500 hover:scale-105 active:scale-95 ${isCreatorMode ? 'bg-primary text-white' : 'bg-white/80 text-text-muted backdrop-blur-sm'}`}
+          type="button"
+          className={`px-6 py-3 rounded-full flex items-center gap-3 text-xs font-black uppercase tracking-widest shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer pointer-events-auto border-2 ${isCreatorMode ? 'bg-primary text-white border-primary' : 'bg-white/95 text-text-muted backdrop-blur-md border-border/50 hover:border-primary/30'}`}
         >
           {isCreatorMode ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
           {isCreatorMode ? 'Creator Mode ON' : 'Login'}
         </button>
+
+        {isCreatorMode && syncStatus !== 'idle' && (
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="px-3 py-1 bg-white/90 backdrop-blur-sm rounded-lg border border-primary/20 shadow-sm flex items-center gap-2"
+          >
+            <div className={`w-2 h-2 rounded-full ${syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`} />
+            <span className="text-[9px] font-bold text-text-muted uppercase tracking-tighter">
+              {syncStatus === 'syncing' ? 'Cloud Syncing...' : 'Saved to Cloud'}
+            </span>
+          </motion.div>
+        )}
+        
+        {isCreatorMode && syncStatus === 'idle' && lastSynced && (
+          <div className="text-[8px] text-text-muted/50 font-bold uppercase tracking-widest">
+            Last Sync: {lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
       </div>
 
       {/* Password Modal */}
       <AnimatePresence>
         {showPasswordModal && (
-          <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 export-ignore">
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 export-ignore">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1097,6 +1234,7 @@ export default function App() {
                     className={`w-full px-6 py-4 bg-surface rounded-2xl border-2 transition-all outline-none text-center font-bold tracking-widest ${passwordError ? 'border-red-500 bg-red-50' : 'border-transparent focus:border-primary/30'}`}
                   />
                   {passwordError && <p className="text-xs text-red-500 font-bold uppercase tracking-widest">密码校验失败</p>}
+                  {authError && <p className="text-xs text-amber-500 font-bold w-full break-words px-2 leading-relaxed">{authError}</p>}
                   
                   <button 
                     onClick={verifyPassword}
@@ -1664,13 +1802,28 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* Handwritten-style Title */}
-                <h3 className="text-3xl italic font-serif mb-2 group-hover:text-primary transition-colors pr-8">
-                  {project.title}
-                </h3>
-                <p className="text-sm text-text-muted/70 leading-relaxed line-clamp-2 italic font-serif">
-                  {project.desc}
-                </p>
+                {/* Handwritten-style Title (Editable) */}
+                <EditableText 
+                  tag="h3"
+                  text={project.title}
+                  onSave={(val) => {
+                    // In a real app, this would update the Projects array or DB.
+                    // For now, updating will trigger a re-render if the state is managed properly.
+                    // Adding a placeholder logic here.
+                    console.log(`Updated project ${project.id} title to: ${val}`);
+                  }}
+                  isCreatorMode={isCreatorMode}
+                  className="text-3xl italic font-serif mb-2 group-hover:text-primary transition-colors pr-8 cursor-text"
+                />
+                <EditableText 
+                  tag="p"
+                  text={project.desc}
+                  onSave={(val) => {
+                    console.log(`Updated project ${project.id} desc to: ${val}`);
+                  }}
+                  isCreatorMode={isCreatorMode}
+                  className="text-sm text-text-muted/70 leading-relaxed line-clamp-2 italic font-serif cursor-text"
+                />
                 
                 {/* Decorative Staple or Tape */}
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-3 bg-neutral-400/30 rounded-sm z-20" />
@@ -1712,34 +1865,23 @@ export default function App() {
             <h2 className="text-5xl md:text-8xl font-black text-primary uppercase tracking-tight leading-none relative z-10 text-center">
               Slices of <br /> My Life
             </h2>
-            <motion.div 
-              initial={{ width: 0 }}
-              whileInView={{ width: "100px" }}
-              transition={{ delay: 0.5, duration: 1 }}
-              className="h-2 bg-primary mt-8"
-            />
           </motion.div>
-        </div>
-      </section>
-
-      {/* Project Modal */}
-      <AnimatePresence>
-        {selectedProject && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center sm:p-4 pointer-events-none">
+          <AnimatePresence>
+          {selectedProject && (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-surface/95 backdrop-blur-xl pointer-events-auto"
+              className="fixed inset-0 z-[5000] flex items-center justify-center p-4 md:p-8 bg-black/40 backdrop-blur-sm pointer-events-auto"
               onClick={() => setSelectedProject(null)}
-            />
-            
-            <motion.div 
-              initial={{ opacity: 0, y: 50, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 50, scale: 0.95 }}
-              className="relative w-full max-w-5xl h-full sm:h-[90vh] bg-white shadow-2xl overflow-hidden flex flex-col pointer-events-auto border border-border sm:rounded-2xl"
             >
+              <motion.div 
+                initial={{ opacity: 0, y: 50, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 50, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative w-full max-w-5xl h-[95vh] sm:h-auto sm:max-h-[90vh] bg-white shadow-2xl overflow-hidden flex flex-col border border-border sm:rounded-2xl"
+              >
               {/* Sticky Close Button */}
               <button 
                 onClick={() => setSelectedProject(null)}
@@ -1755,9 +1897,15 @@ export default function App() {
                   <span className="text-[10px] uppercase font-black tracking-[0.3em] text-primary bg-primary/5 px-4 py-1.5 rounded-full inline-block mb-6">
                     {selectedProject.category}
                   </span>
-                  <h3 className="text-4xl md:text-5xl font-serif italic font-bold tracking-tight text-text-main leading-tight">
-                    {selectedProject.title}
-                  </h3>
+                  <EditableText 
+                    tag="h3"
+                    text={selectedProject.title}
+                    onSave={(val) => {
+                      console.log(`Updated selected project title to: ${val}`);
+                    }}
+                    isCreatorMode={isCreatorMode}
+                    className="text-4xl md:text-5xl font-serif italic font-bold tracking-tight text-text-main leading-tight cursor-text"
+                  />
                 </div>
               </div>
 
@@ -1783,12 +1931,28 @@ export default function App() {
                     {/* Primary Content Block */}
                     {selectedProject.content ? (
                       <div className="markdown-body prose prose-neutral max-w-none prose-headings:font-serif prose-p:text-lg prose-p:leading-relaxed mb-12">
-                        <ReactMarkdown>{selectedProject.content}</ReactMarkdown>
+                        {isCreatorMode ? (
+                          <textarea
+                            value={selectedProject.content}
+                            onChange={(e) => {
+                              console.log(`Updated content: ${e.target.value}`);
+                            }}
+                            className="w-full min-h-[300px] p-4 border border-border rounded-lg outline-none focus:border-primary"
+                          />
+                        ) : (
+                          <ReactMarkdown>{selectedProject.content}</ReactMarkdown>
+                        )}
                       </div>
                     ) : (
-                      <p className="text-2xl text-text-muted leading-relaxed font-serif italic border-l-4 border-primary/20 pl-8 py-2 mb-12">
-                        {selectedProject.desc}
-                      </p>
+                      <EditableText 
+                        tag="p"
+                        text={selectedProject.desc}
+                        onSave={(val) => {
+                          console.log(`Updated project desc to: ${val}`);
+                        }}
+                        isCreatorMode={isCreatorMode}
+                        className="text-2xl text-text-muted leading-relaxed font-serif italic border-l-4 border-primary/20 pl-8 py-2 mb-12 cursor-text"
+                      />
                     )}
 
                     {/* Metadata & Resources Section */}
@@ -1864,9 +2028,11 @@ export default function App() {
                 </div>
               </div>
             </motion.div>
-            </div>
+          </motion.div>
           )}
         </AnimatePresence>
+        </div>
+      </section>
 
       {/* DIY Sticker Playground / 贴纸 DIY 区域 */}
       <section id="diy-playground" className="min-h-screen py-32 px-10 relative bg-surface flex flex-col items-center justify-center border-t border-border/50">
