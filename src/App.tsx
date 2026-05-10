@@ -749,6 +749,9 @@ export default function App() {
     }
   };
 
+  // Projects State
+  const [projects, setProjects] = useState<Project[]>(DATA.projects as Project[]);
+
   // Page Content State
   const [pageContent, setPageContent] = useState({
     heroTitle: `Hi！我是${DATA.name}`,
@@ -807,6 +810,22 @@ export default function App() {
       }
     }, (err) => handleFirestoreError(err, OperationType.GET, 'config/pageContent'));
 
+    const unsubProjects = onSnapshot(collection(db, 'projects'), (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs.map(doc => ({ id: Number(doc.id), ...doc.data() } as any));
+        // Sort by id to maintain original order
+        data.sort((a, b) => a.id - b.id);
+        setProjects(data);
+      } else {
+        // Initialize projects in Firebase if empty and user is admin
+        if (auth.currentUser && auth.currentUser.email === "yanyuxin03@gmail.com") {
+          DATA.projects.forEach(p => {
+             setDoc(doc(db, 'projects', String(p.id)), p).catch(e => console.error(e));
+          });
+        }
+      }
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'projects'));
+
     const unsubStickers = onSnapshot(collection(db, 'stickers'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setStickers(data);
@@ -830,6 +849,7 @@ export default function App() {
     return () => {
       unsubAuth();
       unsubPageContent();
+      unsubProjects();
       unsubStickers();
       unsubCustomStickers();
       unsubWorldImages();
@@ -1113,11 +1133,19 @@ export default function App() {
     }
   };
 
+  const updateProject = async (id: number | string, key: string, value: string) => {
+    try {
+      await trackSync(setDoc(doc(db, 'projects', String(id)), { [key]: value }, { merge: true }));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
+    }
+  };
+
   const filteredProjects = useMemo(() => 
     activeCategory === '全部' 
-      ? (DATA.projects as Project[])
-      : (DATA.projects as Project[]).filter(p => p.category === activeCategory)
-  , [activeCategory]);
+      ? projects
+      : projects.filter(p => p.category === activeCategory)
+  , [activeCategory, projects]);
 
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary relative">
@@ -1807,10 +1835,7 @@ export default function App() {
                   tag="h3"
                   text={project.title}
                   onSave={(val) => {
-                    // In a real app, this would update the Projects array or DB.
-                    // For now, updating will trigger a re-render if the state is managed properly.
-                    // Adding a placeholder logic here.
-                    console.log(`Updated project ${project.id} title to: ${val}`);
+                    updateProject(project.id, 'title', val);
                   }}
                   isCreatorMode={isCreatorMode}
                   className="text-3xl italic font-serif mb-2 group-hover:text-primary transition-colors pr-8 cursor-text"
@@ -1819,7 +1844,7 @@ export default function App() {
                   tag="p"
                   text={project.desc}
                   onSave={(val) => {
-                    console.log(`Updated project ${project.id} desc to: ${val}`);
+                    updateProject(project.id, 'desc', val);
                   }}
                   isCreatorMode={isCreatorMode}
                   className="text-sm text-text-muted/70 leading-relaxed line-clamp-2 italic font-serif cursor-text"
@@ -1901,7 +1926,8 @@ export default function App() {
                     tag="h3"
                     text={selectedProject.title}
                     onSave={(val) => {
-                      console.log(`Updated selected project title to: ${val}`);
+                      updateProject(selectedProject.id, 'title', val);
+                      setSelectedProject(prev => prev ? { ...prev, title: val } : null);
                     }}
                     isCreatorMode={isCreatorMode}
                     className="text-4xl md:text-5xl font-serif italic font-bold tracking-tight text-text-main leading-tight cursor-text"
@@ -1935,7 +1961,8 @@ export default function App() {
                           <textarea
                             value={selectedProject.content}
                             onChange={(e) => {
-                              console.log(`Updated content: ${e.target.value}`);
+                              updateProject(selectedProject.id, 'content', e.target.value);
+                              setSelectedProject(prev => prev ? { ...prev, content: e.target.value } : null);
                             }}
                             className="w-full min-h-[300px] p-4 border border-border rounded-lg outline-none focus:border-primary"
                           />
@@ -1948,7 +1975,8 @@ export default function App() {
                         tag="p"
                         text={selectedProject.desc}
                         onSave={(val) => {
-                          console.log(`Updated project desc to: ${val}`);
+                          updateProject(selectedProject.id, 'desc', val);
+                          setSelectedProject(prev => prev ? { ...prev, desc: val } : null);
                         }}
                         isCreatorMode={isCreatorMode}
                         className="text-2xl text-text-muted leading-relaxed font-serif italic border-l-4 border-primary/20 pl-8 py-2 mb-12 cursor-text"
