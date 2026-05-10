@@ -399,6 +399,11 @@ function DraggableSticker({
     centerY: 0
   });
 
+  // Clamp the initial rendering position so it's always visible on screen
+  // Desktop stickers (e.g. x=1000) will clamp to the right edge on mobile (e.g. max x=300)
+  const safeX = typeof window !== 'undefined' ? Math.max(10, Math.min(sticker.x, window.innerWidth - 80)) : sticker.x;
+  const safeY = Math.max(10, sticker.y); // At least top 10px
+
   const getAngleAndDistance = (px: number, py: number) => {
     if (!dragSession.current.centerX) return { angle: 0, distance: 0 };
     const dx = px - dragSession.current.centerX;
@@ -478,10 +483,11 @@ function DraggableSticker({
       dragListener={false} 
       dragMomentum={false}
       onDragEnd={(_e, info) => {
-        onUpdate(sticker.id, { x: sticker.x + info.offset.x, y: sticker.y + info.offset.y });
+        // Compute new position based on the safe start position
+        onUpdate(sticker.id, { x: safeX + info.offset.x, y: safeY + info.offset.y });
       }}
-      initial={{ x: sticker.x, y: sticker.y }}
-      animate={{ x: sticker.x, y: sticker.y }}
+      initial={{ x: safeX, y: safeY }}
+      animate={{ x: safeX, y: safeY }}
       style={{
         rotate: motionRotate,
         scale: motionScale,
