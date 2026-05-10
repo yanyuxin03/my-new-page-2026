@@ -1094,7 +1094,7 @@ export default function App() {
       } catch (err: any) {
         console.error("Google Login failed:", err);
         if (err.code === 'auth/popup-closed-by-user') {
-          setAuthError("由于浏览器限制，弹窗可能被意外关闭。请再次点击并允许弹出窗口。您可以尝试多试几次，如果实在不行请[右键点击本页面]->[在新标签页中打开]。");
+          setAuthError("登录弹窗被关闭。如果您已部署到外部网站(如 GitHub Pages)，请务必在 Firebase 控制台的 Authentication -> Settings -> Authorized domains 中添加您的域名（例如 yanyuxin03.github.io），否则无法通过身份验证。");
         } else {
           setAuthError(err instanceof Error ? err.message : "登录失败，请重试。");
         }
@@ -1742,7 +1742,7 @@ export default function App() {
                 transition={{ duration: 0.5 }}
                 className="group cursor-pointer relative"
                 style={{ rotate: idx % 2 === 0 ? -1 : 1.5 }}
-                onClick={() => setSelectedProject(project)}
+                onClick={() => !isCreatorMode && setSelectedProject(project)}
               >
               {/* Polaroid-style Card */}
               <div className="bg-white p-4 pb-12 shadow-xl border border-neutral-200 transition-all duration-500 group-hover:rotate-0 group-hover:scale-[1.02] group-hover:shadow-2xl">
