@@ -363,8 +363,8 @@ function DraggableSticker({
   onRemove,
   isCreatorMode
 }: { 
-  sticker: { id: string; type?: 'image' | 'text'; src?: string; text?: string; x: number; y: number; rotate: number; scale: number; fontFamily?: string; color?: string; isBorderless?: boolean }; 
-  onUpdate: (id: string, updates: Partial<{ x: number; y: number; rotate: number; scale: number; text?: string; fontFamily?: string; color?: string; isBorderless?: boolean }>) => void;
+  sticker: { id: string; type?: 'image' | 'text'; src?: string; text?: string; x: number; y: number; rotate: number; scale: number; fontFamily?: string; color?: string; isBorderless?: boolean; isCenterRelative?: boolean }; 
+  onUpdate: (id: string, updates: Partial<{ x: number; y: number; rotate: number; scale: number; text?: string; fontFamily?: string; color?: string; isBorderless?: boolean; isCenterRelative?: boolean }>) => void;
   onRemove: (id: string) => void;
   isCreatorMode: boolean;
 }) {
@@ -470,12 +470,15 @@ function DraggableSticker({
     });
   };
 
-  // Fallback migration for existing stickers created with absolute coordinates.
-  // If a sticker has an x > 100 or x < -100, we treat it as an old absolute coordinate
-  // and convert it to be center-relative based on the current window width.
-  let currentX = sticker.x;
-  if (typeof window !== 'undefined' && (currentX > 200 || currentX < -200)) {
-     currentX = sticker.x - window.innerWidth / 2;
+  // Maintain a clean approach:
+  // For new stickers (and newly dragged old stickers), we use purely center-relative positioning.
+  const isCenterRelative = sticker.isCenterRelative === true;
+  
+  // Calculate the correct rendering X based on whether it is center relative or an old absolute sticker
+  let renderX = sticker.x;
+  if (!isCenterRelative && typeof window !== 'undefined') {
+    // If it's an old sticker using absolute coordinates, visually approximate its position relative to center
+    renderX = sticker.x - window.innerWidth / 2;
   }
 
   return (
@@ -486,13 +489,19 @@ function DraggableSticker({
       dragListener={false} 
       dragMomentum={false}
       onDragEnd={(_e, info) => {
-        onUpdate(sticker.id, { x: currentX + info.offset.x, y: sticker.y + info.offset.y });
+        // Upon dragging, enforce that it becomes center relative
+        onUpdate(sticker.id, { 
+          x: renderX + info.offset.x, 
+          y: sticker.y + info.offset.y,
+          isCenterRelative: true 
+        });
       }}
-      initial={{ x: currentX, y: 0 }}
-      animate={{ x: currentX, y: 0 }}
+      initial={{ x: renderX, y: sticker.y }}
+      animate={{ x: renderX, y: sticker.y }}
       style={{
         left: '50%',
-        top: `${sticker.y}px`,
+        position: 'absolute',
+        top: 0,
         rotate: motionRotate,
         scale: motionScale,
         touchAction: 'none',
@@ -726,7 +735,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Sticker Management State
-  const [stickers, setStickers] = useState<{ id: string; type?: 'image' | 'text'; src?: string; text?: string; x: number; y: number; rotate: number; scale: number; fontFamily?: string; color?: string; isBorderless?: boolean }[]>([]);
+  const [stickers, setStickers] = useState<{ id: string; type?: 'image' | 'text'; src?: string; text?: string; x: number; y: number; rotate: number; scale: number; fontFamily?: string; color?: string; isBorderless?: boolean; isCenterRelative?: boolean }[]>([]);
   const [showStickerBox, setShowStickerBox] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -995,6 +1004,7 @@ export default function App() {
       y: window.scrollY + window.innerHeight / 2 - 100 + (Math.random() * 40 - 20),
       rotate: Math.random() * 20 - 10,
       scale: 1,
+      isCenterRelative: true,
       createdAt: serverTimestamp()
     };
     try {
@@ -1014,6 +1024,7 @@ export default function App() {
       y: window.scrollY + window.innerHeight / 2 - 100 + (Math.random() * 40 - 20),
       rotate: Math.random() * 20 - 10,
       scale: 1,
+      isCenterRelative: true,
       createdAt: serverTimestamp()
     };
     try {
@@ -1023,7 +1034,7 @@ export default function App() {
     }
   };
 
-  const updateSticker = async (id: string, updates: Partial<{ x: number; y: number; rotate: number; scale: number; text?: string; fontFamily?: string; color?: string; isBorderless?: boolean }>) => {
+  const updateSticker = async (id: string, updates: Partial<{ x: number; y: number; rotate: number; scale: number; text?: string; fontFamily?: string; color?: string; isBorderless?: boolean; isCenterRelative?: boolean }>) => {
     try {
       await trackSync(updateDoc(doc(db, 'stickers', id), updates));
     } catch (err) {
@@ -1490,7 +1501,7 @@ export default function App() {
                 <span>{DATA.university}</span>
               </div>
               <a 
-                href="resume.pdf" 
+                href={`${import.meta.env.BASE_URL}resume.pdf`} 
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-primary transition-colors flex items-center group/resume"
