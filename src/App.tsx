@@ -178,17 +178,62 @@ function ExperienceFlipCard({ exp, index, isReversed }: { exp: any; index: numbe
   );
 }
 
-function ClickNoteCard({ note, isCreatorMode, onUpdate, onRemove }: { 
+function ClickNoteCard({ 
+  note, 
+  isCreatorMode, 
+  onUpdate, 
+  onRemove,
+  flippedNoteId,
+  setFlippedNoteId,
+  flippedRect,
+  setFlippedRect
+}: { 
   note: any; 
   isCreatorMode: boolean; 
   onUpdate: (id: string, updates: any) => void;
   onRemove: (id: string) => void;
+  flippedNoteId: string | null;
+  setFlippedNoteId: (id: string | null) => void;
+  flippedRect: { x: number, y: number } | null;
+  setFlippedRect: (rect: { x: number, y: number } | null) => void;
 }) {
-  const [isFlipped, setIsFlipped] = useState(false);
+  const isFlipped = flippedNoteId === note.id;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  
   const [isHovered, setIsHovered] = useState(false);
   const dragOccurred = useRef(false);
   const textMeasureRef = useRef<HTMLSpanElement>(null);
   const [frontWidth, setFrontWidth] = useState(280);
+  const [localFront, setLocalFront] = useState(note.front);
+  const [localBack, setLocalBack] = useState(note.back);
+  const [rippleOffset, setRippleOffset] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    setLocalFront(note.front);
+    setLocalBack(note.back);
+  }, [note.front, note.back]);
+
+  useEffect(() => {
+    if (flippedNoteId && flippedNoteId !== note.id && flippedRect && wrapperRef.current) {
+      const myRect = wrapperRef.current.getBoundingClientRect();
+      const myCx = myRect.left + myRect.width / 2 + note.x;
+      const myCy = myRect.top + myRect.height / 2 + note.y;
+
+      const dx = myCx - flippedRect.x;
+      const dy = myCy - flippedRect.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      const minDist = 350; 
+      if (dist < minDist && dist > 1) {
+         const pushDist = minDist - dist;
+         const ratio = pushDist / dist;
+         
+         setRippleOffset({ x: dx * ratio, y: dy * ratio });
+         return;
+      }
+    }
+    setRippleOffset({ x: 0, y: 0 });
+  }, [flippedNoteId, flippedRect, note.id, note.x, note.y]);
 
   // Measure text width for dynamic strip sizing
   useEffect(() => {
@@ -198,7 +243,7 @@ function ClickNoteCard({ note, isCreatorMode, onUpdate, onRemove }: {
       const newWidth = Math.min(Math.max(width + 80, 180), 600);
       setFrontWidth(newWidth);
     }
-  }, [note.front, isFlipped]);
+  }, [localFront, isFlipped]);
 
   const handleFlip = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -206,46 +251,59 @@ function ClickNoteCard({ note, isCreatorMode, onUpdate, onRemove }: {
       dragOccurred.current = false;
       return;
     }
-    setIsFlipped(!isFlipped);
+    if (isFlipped) {
+      setFlippedNoteId(null);
+      setFlippedRect(null);
+    } else {
+      setFlippedNoteId(note.id);
+      if (wrapperRef.current) {
+        const rect = wrapperRef.current.getBoundingClientRect();
+        setFlippedRect({ x: rect.left + rect.width/2 + note.x, y: rect.top + rect.height/2 + note.y });
+      }
+    }
   };
 
   return (
-    <motion.div 
-      layout
-      drag={isCreatorMode}
-      dragMomentum={false}
-      onDragStart={() => {
-        dragOccurred.current = false;
-      }}
-      onDrag={() => {
-        dragOccurred.current = true;
-      }}
-      onDragEnd={(_e, info) => {
-        onUpdate(note.id, { x: note.x + info.offset.x, y: note.y + info.offset.y });
-        setTimeout(() => { dragOccurred.current = false; }, 100);
-      }}
-      initial={{ x: note.x, y: note.y }}
-      animate={{ 
-        x: note.x, 
-        y: note.y,
-        width: isFlipped ? 320 : frontWidth,
-        height: isFlipped ? 240 : 56
-      }}
-      className="perspective-1000 relative group z-10"
-      style={{ 
-        transform: `rotate(${note.rotate}deg)`,
-        margin: '20px'
-      }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <div ref={wrapperRef} style={{ width: frontWidth, height: 56, margin: '20px', zIndex: isFlipped || isHovered ? 50 : 10 }} className="relative shrink-0 transition-all duration-500">
+      <motion.div 
+        drag={isCreatorMode}
+        dragMomentum={false}
+        onDragStart={() => {
+          dragOccurred.current = false;
+        }}
+        onDrag={() => {
+          dragOccurred.current = true;
+        }}
+        onDragEnd={(_e, info) => {
+          onUpdate(note.id, { x: note.x + info.offset.x, y: note.y + info.offset.y });
+          setTimeout(() => { dragOccurred.current = false; }, 100);
+        }}
+        initial={{ x: note.x, y: note.y }}
+        animate={{ 
+          x: note.x + rippleOffset.x, 
+          y: note.y + rippleOffset.y,
+          width: isFlipped ? 320 : frontWidth,
+          height: isFlipped ? 240 : 56,
+          zIndex: isFlipped || isHovered ? 50 : 10
+        }}
+        className="perspective-1000 absolute group"
+        style={{ 
+          transform: `rotate(${note.rotate}deg)`,
+          left: '50%',
+          top: '50%',
+          marginLeft: isFlipped ? -160 : -frontWidth / 2,
+          marginTop: isFlipped ? -120 : -28
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
       {/* Hidden measure element */}
       <span 
         ref={textMeasureRef} 
         className="absolute opacity-0 pointer-events-none font-muyao italic text-sm whitespace-nowrap"
         aria-hidden="true"
       >
-        {note.front}
+        {localFront}
       </span>
 
       <motion.div
@@ -274,17 +332,18 @@ function ClickNoteCard({ note, isCreatorMode, onUpdate, onRemove }: {
           <div className="relative z-10 w-full px-8 drop-shadow-sm flex items-center justify-center">
             {isCreatorMode ? (
               <input
-                value={note.front}
+                value={localFront}
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsFlipped(false);
                 }}
-                onChange={(e) => onUpdate(note.id, { front: e.target.value })}
+                onChange={(e) => setLocalFront(e.target.value)}
+                onBlur={() => onUpdate(note.id, { front: localFront })}
                 className="w-full bg-transparent border-none outline-none text-center font-muyao italic text-sm focus:ring-0 text-text-main/80"
               />
             ) : (
               <p className="font-muyao italic text-sm leading-none text-text-main/80 select-none whitespace-nowrap overflow-hidden">
-                {note.front}
+                {localFront}
               </p>
             )}
           </div>
@@ -310,16 +369,17 @@ function ClickNoteCard({ note, isCreatorMode, onUpdate, onRemove }: {
           <div className="relative z-10 h-full flex flex-col">
             {isCreatorMode ? (
               <textarea
-                value={note.back}
+                value={localBack}
                 onClick={(e) => e.stopPropagation()}
-                onChange={(e) => onUpdate(note.id, { back: e.target.value })}
+                onChange={(e) => setLocalBack(e.target.value)}
+                onBlur={() => onUpdate(note.id, { back: localBack })}
                 className="w-full flex-grow bg-transparent border-none outline-none text-xs font-serif italic leading-relaxed text-text-main/70 resize-none focus:ring-0 custom-scrollbar"
                 rows={8}
               />
             ) : (
               <div className="flex-grow overflow-y-auto custom-scrollbar pr-2">
                 <p className="text-xs font-serif italic leading-relaxed text-text-main/70 whitespace-pre-wrap select-none">
-                  {note.back}
+                  {localBack}
                 </p>
               </div>
             )}
@@ -354,6 +414,7 @@ function ClickNoteCard({ note, isCreatorMode, onUpdate, onRemove }: {
         </>
       )}
     </motion.div>
+    </div>
   );
 }
 
@@ -748,6 +809,8 @@ export default function App() {
 
   // Click Moment Notes State
   const [clickNotes, setClickNotes] = useState<{ id: string; front: string; back: string; rotate: number; x: number; y: number }[]>([]);
+  const [flippedNoteId, setFlippedNoteId] = useState<string | null>(null);
+  const [flippedRect, setFlippedRect] = useState<{ x: number, y: number } | null>(null);
   
   // Sync Status State
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved'>('idle');
@@ -2272,6 +2335,10 @@ export default function App() {
                 isCreatorMode={isCreatorMode}
                 onUpdate={updateClickNote}
                 onRemove={removeClickNote}
+                flippedNoteId={flippedNoteId}
+                setFlippedNoteId={setFlippedNoteId}
+                flippedRect={flippedRect}
+                setFlippedRect={setFlippedRect}
               />
             ))}
           </div>
