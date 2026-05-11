@@ -399,11 +399,6 @@ function DraggableSticker({
     centerY: 0
   });
 
-  // Clamp the initial rendering position so it's always visible on screen
-  // Desktop stickers (e.g. x=1000) will clamp to the right edge on mobile (e.g. max x=300)
-  const safeX = typeof window !== 'undefined' ? Math.max(10, Math.min(sticker.x, window.innerWidth - 80)) : sticker.x;
-  const safeY = Math.max(10, sticker.y); // At least top 10px
-
   const getAngleAndDistance = (px: number, py: number) => {
     if (!dragSession.current.centerX) return { angle: 0, distance: 0 };
     const dx = px - dragSession.current.centerX;
@@ -475,6 +470,14 @@ function DraggableSticker({
     });
   };
 
+  // Fallback migration for existing stickers created with absolute coordinates.
+  // If a sticker has an x > 100 or x < -100, we treat it as an old absolute coordinate
+  // and convert it to be center-relative based on the current window width.
+  let currentX = sticker.x;
+  if (typeof window !== 'undefined' && (currentX > 200 || currentX < -200)) {
+     currentX = sticker.x - window.innerWidth / 2;
+  }
+
   return (
     <motion.div
       ref={containerRef}
@@ -483,16 +486,17 @@ function DraggableSticker({
       dragListener={false} 
       dragMomentum={false}
       onDragEnd={(_e, info) => {
-        // Compute new position based on the safe start position
-        onUpdate(sticker.id, { x: safeX + info.offset.x, y: safeY + info.offset.y });
+        onUpdate(sticker.id, { x: currentX + info.offset.x, y: sticker.y + info.offset.y });
       }}
-      initial={{ x: safeX, y: safeY }}
-      animate={{ x: safeX, y: safeY }}
+      initial={{ x: currentX, y: 0 }}
+      animate={{ x: currentX, y: 0 }}
       style={{
+        left: '50%',
+        top: `${sticker.y}px`,
         rotate: motionRotate,
         scale: motionScale,
         touchAction: 'none',
-        transformOrigin: "center center"
+        transformOrigin: "center center",
       }}
       transition={(isRotating || isScaling) ? { type: "tween", duration: 0 } : { type: "spring", stiffness: 300, damping: 30 }}
       whileHover={{ zIndex: 50 }}
@@ -987,7 +991,7 @@ export default function App() {
     const newSticker = {
       type: 'image' as const,
       src: src,
-      x: window.innerWidth / 2 - 100 + (Math.random() * 40 - 20),
+      x: Math.random() * 40 - 20,
       y: window.scrollY + window.innerHeight / 2 - 100 + (Math.random() * 40 - 20),
       rotate: Math.random() * 20 - 10,
       scale: 1,
@@ -1006,7 +1010,7 @@ export default function App() {
       text: isBorderless ? '无边框文字' : '带框文字',
       fontFamily: 'Muyao',
       isBorderless,
-      x: window.innerWidth / 2 - 100 + (Math.random() * 40 - 20),
+      x: Math.random() * 40 - 20,
       y: window.scrollY + window.innerHeight / 2 - 100 + (Math.random() * 40 - 20),
       rotate: Math.random() * 20 - 10,
       scale: 1,
